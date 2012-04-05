@@ -16,28 +16,32 @@ subRange :: (Int, Int) -> [a] -> [a]
 subRange (x, y) = take (y - x) . drop x
 
 
-greedyMatch ss i m = match ss i m 0
+greedyMatch :: Regex -> String -> Int -> (Int, Int)
+greedyMatch m ss i = match ss i m 0
   where match :: String -> Int -> Regex -> Int -> (Int, Int)
         match str indx isMatch nrMatch = 
           if indx < length str && fst (isMatch str indx) then
             match str (indx + 1) isMatch (nrMatch + 1)
           else (nrMatch, indx)
 
-matchN ss i m n = match ss i m n 0
+matchN :: Regex -> Int -> Regex
+matchN m n ss i = match ss i m n 0
   where match :: String -> Int -> Regex -> Int -> Int -> (Bool, Int)
         match str indx isMatch nrMatch nrTimes = 
           if nrTimes < nrMatch && indx < length str && fst (isMatch str indx)
           then match str (indx + 1) isMatch nrMatch (nrTimes +1)                                          
           else (nrTimes == nrMatch, indx)
 
-matchAtLeastN ss i m n = match ss i m n 0
+matchAtLeastN :: Regex -> Int -> Regex
+matchAtLeastN m n ss i = match ss i m n 0
   where match :: String -> Int -> Regex -> Int -> Int -> (Bool, Int)
         match str indx isMatch nrMatch nrTimes =
           if indx < length str && fst (isMatch str indx) then
             match str (indx + 1) isMatch nrMatch (nrTimes +1)
           else (nrTimes >= nrMatch, indx)
 
-matchBetweenN1N2 ss i m n1 n2 = match ss i m n1 n2 0
+matchBetweenN1N2 :: Regex -> Int -> Int -> Regex
+matchBetweenN1N2 m n1 n2 ss i = match ss i m n1 n2 0
   where match str indx isMatch min max counter = 
           if counter < max && indx < length str && fst (isMatch str indx) 
           then match str (indx + 1) isMatch min max (counter + 1) 
@@ -80,11 +84,11 @@ notWc ss i = let m = wc ss i in (not $ fst $ m, snd m)
 (@.) ch ss i = (ch == ss !! i, i + 1)
 
 (+.)  :: Regex -> Regex
-(+.) m ss i = let (nrMatch, indx) = greedyMatch ss i m 
+(+.) m ss i = let (nrMatch, indx) = greedyMatch m ss i 
               in (nrMatch > 0, indx)
 
 (*.) :: Regex -> Regex
-(*.) m ss i = let (nrMatch, indx) = greedyMatch ss i m 
+(*.) m ss i = let (nrMatch, indx) = greedyMatch m ss i 
                  in (nrMatch >= 0, indx)
 
 (|.) :: Regex -> Regex -> Regex
@@ -110,6 +114,15 @@ b ss i = f ss i where
     | indx >= length str - 1 = (False, indx)
     | isSpace (str !! indx) && isAlphaNum (str !! (indx + 1 )) = (True, indx)
     | otherwise = f str (indx + 1)
+
+(%#.) :: Regex -> Int -> Regex
+(%#.) = matchAtLeastN
+
+(#%.) :: Regex -> Int -> Regex
+(#%.) = matchAtLeastN
+
+(#%#.) :: Regex -> (Int, Int) -> Regex
+(#%#.) m (min, max) = matchBetweenN1N2 m min max
      
 -- chain functions together and providing the end index 
 -- of the previous as the start of the current.
