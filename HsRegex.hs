@@ -49,21 +49,21 @@ matchBetweenN1N2 m n1 n2 ss i = match ss i m n1 n2 0
 
 
 -- regular perl meanings
-(...) :: Regex
-(...) ss i = ('\n' /= ss !! i, i + 1)
+dot :: Regex
+dot ss i = ('\n' /= ss !! i, i + 1)
 
-($.) :: Regex
-($.) ss i = ((i + 1) == length ss || ss !! i == '\n', i + 1)
+endl :: Regex
+endl ss i = ((i + 1) == length ss || ss !! i == '\n', i + 1)
 
-(^.) :: Regex
-(^.) ss i = if i == 0 then (True, i) 
+stl :: Regex
+stl ss i = if i == 0 then (True, i) 
              else (ss !! (i - 1) == '\n', i + 1)
 
-sc :: Regex
-sc ss i = (isSpace (ss !! i), i + 1)
+spc :: Regex
+spc ss i = (isSpace (ss !! i), i + 1)
 
-notSc :: Regex
-notSc ss i = let m = sc ss i in (not $ fst $ m, snd m)
+notSpc :: Regex
+notSpc ss i = let m = sc ss i in (not $ fst $ m, snd m)
 
 wc :: Regex
 wc ss i = (isLetter (ss !! i), i + 1)
@@ -71,58 +71,58 @@ wc ss i = (isLetter (ss !! i), i + 1)
 notWc :: Regex
 notWc ss i = let m = wc ss i in (not $ fst $ m, snd m)
 
-(#.) :: Regex
-(#.) ss i = (ss !! i `elem` ['0' .. '9'], i + 1)
+digit :: Regex
+digit ss i = (ss !! i `elem` ['0' .. '9'], i + 1)
 
-(^#.) :: Regex
-(^#.) ss i = let m = (#.) ss i in (not $ fst $ m, snd m)
+notDigit :: Regex
+notDigit ss i = let m = (#.) ss i in (not $ fst $ m, snd m)
 
-(@#.) :: Regex
-(@#.) ss i = (isAlphaNum (ss !! i), i + 1)
+alnum :: Regex
+alnum ss i = (isAlphaNum (ss !! i), i + 1)
 
-(@.) :: Char -> Regex
-(@.) ch ss i = (ch == ss !! i, i + 1)
+ch :: Char -> Regex
+ch ch ss i = (ch == ss !! i, i + 1)
 
-(+.)  :: Regex -> Regex
-(+.) m ss i = let (nrMatch, indx) = greedyMatch m ss i 
+plus  :: Regex -> Regex
+plus m ss i = let (nrMatch, indx) = greedyMatch m ss i 
               in (nrMatch > 0, indx)
 
-(*.) :: Regex -> Regex
-(*.) m ss i = let (nrMatch, indx) = greedyMatch m ss i 
+star :: Regex -> Regex
+star m ss i = let (nrMatch, indx) = greedyMatch m ss i 
                  in (nrMatch >= 0, indx)
 
-(|.) :: Regex -> Regex -> Regex
-(|.) m1 m2 ss i = (fst (m1 ss i) || fst (m2 ss i), i + 1)
+pipe :: Regex -> Regex -> Regex
+pipe m1 m2 ss i = (fst (m1 ss i) || fst (m2 ss i), i + 1)
 
-(%.) :: String -> Regex
-(%.) cs ss i = (any (fst . isMatch ss i) cs, i + 1)
+range :: String -> Regex
+range cs ss i = (any (fst . isMatch ss i) cs, i + 1)
   where isMatch ss i ch = (@.) ch ss i
 
-(^%.) :: String -> Regex
-(^%.) cs ss i = let (bool, indx) = (%.) cs ss i 
+range :: String -> Regex
+range cs ss i = let (bool, indx) = (%.) cs ss i 
                    in (not bool, indx)
 
-(?.) :: Regex -> Regex
-(?.) m ss i = case m ss i of 
+qMark :: Regex -> Regex
+qMark m ss i = case m ss i of 
   (True, indx) -> (True, indx)
   (False, _) -> (True, i)
 
-b :: String -> Int -> (Bool, Int)
-b ss i = f ss i where
+wb :: String -> Int -> (Bool, Int)
+wb ss i = f ss i where
   f :: String -> Int -> (Bool, Int)
   f str indx 
     | indx >= length str - 1 = (False, indx)
     | isSpace (str !! indx) && isAlphaNum (str !! (indx + 1 )) = (True, indx)
     | otherwise = f str (indx + 1)
 
-(%#.) :: Regex -> Int -> Regex
-(%#.) = matchAtLeastN
+mN :: Regex -> Int -> Regex
+mN = matchN
 
-(#%.) :: Regex -> Int -> Regex
-(#%.) = matchAtLeastN
+mLN :: Regex -> Int -> Regex
+mLN = matchAtLeastN
 
-(#%#.) :: Regex -> (Int, Int) -> Regex
-(#%#.) m (min, max) = matchBetweenN1N2 m min max
+mN1N2 :: Regex -> (Int, Int) -> Regex
+mN1N2 m (min, max) = matchBetweenN1N2 m min max
      
 -- chain functions together and providing the end index 
 -- of the previous as the start of the current.
