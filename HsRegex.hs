@@ -48,65 +48,82 @@ matchBetweenN1N2 m n1 n2 ss i = match ss i m n1 n2 0
           else (counter >= min && counter <= max, indx)
 
 
--- regular perl meanings
+-- .
 dot :: Regex
 dot ss i = ('\n' /= ss !! i, i + 1)
 
+-- $
 endl :: Regex
 endl ss i = ((i + 1) == length ss || ss !! i == '\n', i + 1)
 
+-- ^
 stl :: Regex
 stl ss i = if i == 0 then (True, i) 
              else (ss !! (i - 1) == '\n', i + 1)
 
+-- \s
 spc :: Regex
 spc ss i = (isSpace (ss !! i), i + 1)
 
+-- \S
 notSpc :: Regex
 notSpc ss i = let m = sc ss i in (not $ fst $ m, snd m)
 
+-- \w
 wc :: Regex
 wc ss i = (isLetter (ss !! i), i + 1)
 
+-- \W
 notWc :: Regex
 notWc ss i = let m = wc ss i in (not $ fst $ m, snd m)
 
+-- \d
 digit :: Regex
 digit ss i = (ss !! i `elem` ['0' .. '9'], i + 1)
 
+-- \D
 notDigit :: Regex
 notDigit ss i = let m = (#.) ss i in (not $ fst $ m, snd m)
 
+-- \w
 alnum :: Regex
 alnum ss i = (isAlphaNum (ss !! i), i + 1)
 
+-- [a-Z-0-9]
 ch :: Char -> Regex
 ch ch ss i = (ch == ss !! i, i + 1)
 
+-- +
 plus  :: Regex -> Regex
 plus m ss i = let (nrMatch, indx) = greedyMatch m ss i 
               in (nrMatch > 0, indx)
 
+-- *
 star :: Regex -> Regex
 star m ss i = let (nrMatch, indx) = greedyMatch m ss i 
                  in (nrMatch >= 0, indx)
 
+-- |
 pipe :: Regex -> Regex -> Regex
 pipe m1 m2 ss i = (fst (m1 ss i) || fst (m2 ss i), i + 1)
 
+-- []
 range :: String -> Regex
 range cs ss i = (any (fst . isMatch ss i) cs, i + 1)
   where isMatch ss i ch = (@.) ch ss i
 
-range :: String -> Regex
+-- [^]
+notRange :: String -> Regex
 range cs ss i = let (bool, indx) = (%.) cs ss i 
                    in (not bool, indx)
 
+-- ?
 qMark :: Regex -> Regex
 qMark m ss i = case m ss i of 
   (True, indx) -> (True, indx)
   (False, _) -> (True, i)
 
+-- \b
 wb :: String -> Int -> (Bool, Int)
 wb ss i = f ss i where
   f :: String -> Int -> (Bool, Int)
@@ -115,12 +132,15 @@ wb ss i = f ss i where
     | isSpace (str !! indx) && isAlphaNum (str !! (indx + 1 )) = (True, indx)
     | otherwise = f str (indx + 1)
 
+-- {n}
 mN :: Regex -> Int -> Regex
 mN = matchN
 
+-- {,n}
 mLN :: Regex -> Int -> Regex
 mLN = matchAtLeastN
 
+-- {n, n}
 mN1N2 :: Regex -> (Int, Int) -> Regex
 mN1N2 m (min, max) = matchBetweenN1N2 m min max
      
@@ -146,9 +166,6 @@ matchRegex re ss ms i = if i < length ss then
 -- apply the regex on tails str and record the matched ranges
 (=~) :: String ->  Regex -> [String]
 (=~) str regex = map  (flip subRange str) $ matchRegex regex (str ++ ['\n']) [] 0
-
-
-
 
 main :: IO ()
 main = return ()
