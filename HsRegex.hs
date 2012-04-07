@@ -1,20 +1,13 @@
 module Main where
 import Data.Char
 import Data.List
+import Data.String.Utils
 
--- All symbols are the perl equivalents with a dot appended to the function name with the exception of:
--- . =  ...
--- sc = \s
--- @#. = alphanumerical
--- @. = normal char
--- % = []
--- ^% = [^]
-
+-- for notational convienience
 type Regex = String -> Int -> (Bool, Int)
 
-subRange :: (Int, Int) -> [a] -> [a]
+subRange :: (Int, Int) -> [a] -> [a] 
 subRange (x, y) = take (y - x) . drop x
-
 
 greedyMatch :: Regex -> String -> Int -> (Int, Int)
 greedyMatch m ss i = match ss i m 0
@@ -67,7 +60,7 @@ spc ss i = (isSpace (ss !! i), i + 1)
 
 -- \S
 notSpc :: Regex
-notSpc ss i = let m = sc ss i in (not $ fst $ m, snd m)
+notSpc ss i = let m = spc ss i in (not $ fst $ m, snd m)
 
 -- \w
 wc :: Regex
@@ -83,7 +76,7 @@ digit ss i = (ss !! i `elem` ['0' .. '9'], i + 1)
 
 -- \D
 notDigit :: Regex
-notDigit ss i = let m = (#.) ss i in (not $ fst $ m, snd m)
+notDigit ss i = let m = digit ss i in (not $ fst $ m, snd m)
 
 -- \w
 alnum :: Regex
@@ -110,11 +103,11 @@ pipe m1 m2 ss i = (fst (m1 ss i) || fst (m2 ss i), i + 1)
 -- []
 range :: String -> Regex
 range cs ss i = (any (fst . isMatch ss i) cs, i + 1)
-  where isMatch ss i ch = (@.) ch ss i
+  where isMatch ss i c = ch c ss i
 
 -- [^]
 notRange :: String -> Regex
-range cs ss i = let (bool, indx) = (%.) cs ss i 
+notRange cs ss i = let (bool, indx) = (range) cs ss i 
                    in (not bool, indx)
 
 -- ?
@@ -155,6 +148,9 @@ combine funs = acc funs []
             acc fs (bool:rs) ss indx
           else (False, indx)
 
+replaceRegex :: Regex -> String -> String -> String
+replaceRegex re ss subStr = foldr (flip replace subStr) ss (ss =~ re)
+
 matchRegex :: Regex -> String -> [(Int, Int)] -> Int -> [(Int, Int)]
 matchRegex re ss ms i = if i < length ss then 
                      let (bool, indx) = re ss i in
@@ -166,6 +162,10 @@ matchRegex re ss ms i = if i < length ss then
 -- apply the regex on tails str and record the matched ranges
 (=~) :: String ->  Regex -> [String]
 (=~) str regex = map  (flip subRange str) $ matchRegex regex (str ++ ['\n']) [] 0
+
+-- replace the matches found with a regex with the suplied string
+replRe :: Regex -> String -> String -> String
+replRe = replaceRegex
 
 main :: IO ()
 main = return ()
