@@ -1,4 +1,29 @@
-module Main where
+module HsRegex (subRange, 
+                dot, 
+                endl, 
+                stl, 
+                spc, 
+                notSpc,
+                wc, 
+                notWc, 
+                digit, 
+                notDigit, 
+                alnum, 
+                ch, 
+                plus, 
+                star, 
+                pipe, 
+                range, 
+                notRange, 
+                qMark, 
+                wb, 
+                mN, 
+                mLN, 
+                mN1N2, 
+                combine, 
+                (=~), 
+                replRe)  where
+
 import Data.Char
 import Data.List
 import Data.String.Utils
@@ -39,7 +64,6 @@ matchBetweenN1N2 m n1 n2 ss i = match ss i m n1 n2 0
           if counter < max && indx < length str && fst (isMatch str indx) 
           then match str (indx + 1) isMatch min max (counter + 1) 
           else (counter >= min && counter <= max, indx)
-
 
 -- .
 dot :: Regex
@@ -166,6 +190,3 @@ matchRegex re ss ms i = if i < length ss then
 -- replace the matches found with a regex with the suplied string
 replRe :: Regex -> String -> String -> String
 replRe = replaceRegex
-
-main :: IO ()
-main = return ()
