@@ -32,11 +32,17 @@ fst' (x, _, _) = x
 snd' (_, y, _) = y
 thrd' (_, _, z) = z
 
+subRange :: (Int, Int) -> [a] -> [a]
+subRange (x, y) = take (y - x) . drop x
+
+extractMatches :: String -> [(Int, Int)] -> [String]
+extractMatches str = map (flip subRange str)
+
+
+
 -- for notational convienience
 type Regex = [String] -> String -> Int -> (Bool, Int, [String])
 
-subRange :: (Int, Int) -> [a] -> [a]
-subRange (x, y) = take (y - x) . drop x
 
 greedyMatch :: Regex -> [String] -> String -> Int -> (Int, Int)
 greedyMatch m  groups ss i = match ss i m 0 groups
@@ -203,9 +209,6 @@ matchRegex re ss ms i = if i < length ss then
                             matchRegex re ss (ms ++ [(i, indx)]) (i + 1)
                           else matchRegex re ss ms (i + 1)
                         else ms
-
-extractMatches :: String -> [(Int, Int)] -> [String]
-extractMatches str = map (flip subRange str)
 
 -- apply the regex on tails str and record the matched ranges
 (=~) :: String ->  (String -> Int -> (Bool, Int, [String])) -> [String]
