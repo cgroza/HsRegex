@@ -61,8 +61,9 @@ matchN :: Regex -> Int -> [String]-> String -> Int -> (Bool, Int)
 matchN m n groups ss i = match ss i m n 0 groups
   where match :: String -> Int -> Regex -> Int -> Int -> [String] -> (Bool, Int)
         match str indx isMatch nrMatch nrTimes gs =
-          if nrTimes < nrMatch && indx < length str && fst' (isMatch gs str indx)
-          then match str (indx + 1) isMatch nrMatch (nrTimes +1) gs
+          if nrTimes < nrMatch && indx < length str
+             && fst' (isMatch gs str indx) then
+            match str (indx + 1) isMatch nrMatch (nrTimes +1) gs
           else (nrTimes == nrMatch, indx)
 
 matchAtLeastN :: Regex -> Int -> [String] -> String -> Int -> (Bool, Int)
@@ -73,7 +74,8 @@ matchAtLeastN m n groups ss i = match ss i m n 0 groups
             match str (indx + 1) isMatch nrMatch (nrTimes +1) gs
           else (nrTimes >= nrMatch, indx)
 
-matchBetweenN1N2 :: Regex -> Int -> Int -> [String] -> String -> Int -> (Bool, Int)
+matchBetweenN1N2 :: Regex -> Int -> Int -> [String] -> String -> Int -> 
+                    (Bool, Int)
 matchBetweenN1N2 m n1 n2 groups ss i = match ss i m n1 n2 0 groups
   where match str indx isMatch min max counter gs =
           if counter < max && indx < length str && fst' (isMatch gs str indx)
@@ -166,8 +168,8 @@ wb gs ss i = f gs ss i where
     | otherwise = f gs str (indx + 1)
 
 
-reGroup :: (String -> Int -> (Bool, Int, [String])) -> Regex
-reGroup re gs ss i = let (bool, indx, group) = re ss i
+reGroup :: [Regex] -> Regex
+reGroup rs gs ss i = let (bool, indx, group) = combine rs ss i
                      in if bool then
                           (True, indx, group ++ [subRange (i, indx) ss])
                         else (False, i, gs)
@@ -196,15 +198,16 @@ mN1N2 m (min, max) gs ss i = let (bool, pos) = matchBetweenN1N2 m min max gs ss 
 -- of the previous as the start of the current.
 combine :: [Regex] -> String -> Int -> (Bool, Int, [String])
 combine funs = acc funs [] []
-  where acc :: [Regex] -> [Bool] -> [String] -> String -> Int -> (Bool, Int, [String])
+  where acc :: [Regex] -> [Bool] -> [String] -> String -> Int -> 
+               (Bool, Int, [String])
         acc [] rs gs ss i = (and rs, i, gs)
         acc (f:fs) rs gs ss i = let (bool, indx, groups) = f gs ss i in
           if indx < length ss then
             acc fs (bool:rs) groups ss indx
           else (False, indx, groups)
 
-replaceRegex :: (String -> Int -> (Bool, Int, [String])) -> String -> String -> String
-replaceRegex re ss subStr = foldr (flip replace subStr) ss (ss =~ re)
+replaceRegex :: [Regex] -> String -> String -> String
+replaceRegex rs ss subStr = foldr (flip replace subStr) ss (ss =~ rs)
 
 matchRegex :: (String -> Int -> (Bool, Int, [String])) -> String -> 
               [(Int, Int)] -> Int -> [(Int, Int)]
@@ -216,10 +219,9 @@ matchRegex re ss ms i = if i < length ss then
                         else ms
 
 -- apply the regex on tails str and record the matched ranges
-(=~) :: String ->  (String -> Int -> (Bool, Int, [String])) -> [String]
-(=~) str regex =  extractMatches str $ matchRegex regex (str ++ ['\n']) [] 0
+(=~) :: String ->  [Regex] -> [String]
+(=~) str rs =  extractMatches str $ matchRegex (combine rs) (str ++ ['\n']) [] 0
 
 -- replace the matches found with a regex with the suplied string
-replRe :: (String -> Int -> (Bool, Int , [String])) -> String -> String 
-          -> String
+replRe :: [Regex] -> String -> String -> String
 replRe = replaceRegex
