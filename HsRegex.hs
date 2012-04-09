@@ -43,11 +43,8 @@ subRange (x, y) = take (y - x) . drop x
 extractMatches :: String -> [(Int, Int)] -> [String]
 extractMatches str = map (flip subRange str)
 
-
-
 -- for notational convienience
 type Regex = [String] -> String -> Int -> (Bool, Int, [String])
-
 
 greedyMatch :: Regex -> [String] -> String -> Int -> (Int, Int)
 greedyMatch m  groups ss i = match ss i m 0 groups
@@ -93,7 +90,7 @@ endl gs ss i = ((i + 1) == length ss || ss !! i == '\n', i + 1, gs)
 -- ^
 stl :: Regex
 stl gs ss i = if i == 0 then (True, i, gs)
-             else (ss !! (i - 1) == '\n', i + 1, gs)
+              else (ss !! (i - 1) == '\n', i + 1, gs)
 
 -- \s
 spc :: Regex
@@ -130,7 +127,7 @@ ch ch gs ss i = (ch == ss !! i, i + 1, gs)
 -- +
 plus  :: Regex -> Regex
 plus m gs ss i = let (nrMatch, indx) = greedyMatch m gs ss i
-              in (nrMatch > 0, indx, gs)
+                 in (nrMatch > 0, indx, gs)
 
 -- *
 star :: Regex -> Regex
@@ -167,13 +164,14 @@ wb gs ss i = f gs ss i where
       (True, indx, groups)
     | otherwise = f gs str (indx + 1)
 
-
+-- (regexp)
 reGroup :: [Regex] -> Regex
 reGroup rs gs ss i = let (bool, indx, group) = combine rs ss i
                      in if bool then
                           (True, indx, group ++ [subRange (i, indx) ss])
                         else (False, i, gs)
 
+-- $n
 var :: Int -> Regex
 var varN gs ss i = let str = if not $ null gs then gs !! (varN - 1) else []
                        strEndIndex = i + length str in
