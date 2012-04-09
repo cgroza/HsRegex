@@ -157,15 +157,15 @@ wb gs ss i = f gs ss i where
 
 reGroup :: (String -> Int -> (Bool, Int, [String])) -> Regex
 reGroup re gs ss i = let (bool, indx, group) = re ss i
-                          in if bool then
-                               (True, indx, group ++ [subRange (i, indx) ss])
-                             else (False, i, gs)
+                     in if bool then
+                          (True, indx, group ++ [subRange (i, indx) ss])
+                        else (False, i, gs)
 
 var :: Int -> Regex
-var varN gs ss i = let str = gs !! (varN - 1)  
-                       strEndIndex = i + length str - 1 in
-                   if str == subRange (i, strEndIndex) ss then 
-                     (True, strEndIndex, gs)
+var varN gs ss i = let str = if not $ null gs then gs !! (varN - 1) else []
+                       strEndIndex = i + length str in
+                   if not $ null str && str == subRange (i, strEndIndex) ss 
+                   then (True, strEndIndex, gs)
                    else (False, i, gs)
 
 -- {n}
