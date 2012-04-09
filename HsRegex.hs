@@ -16,10 +16,12 @@ module HsRegex (subRange,
                 range, 
                 notRange, 
                 qMark, 
-                wb, 
+                wb,
+                reGroup,
+                var,
                 mN, 
                 mLN, 
-                mN1N2, 
+                mN1N2,
                 combine, 
                 (=~), 
                 replRe) where
@@ -28,13 +30,16 @@ import Data.Char
 import Data.List
 import Data.String.Utils
 
+-- for 3 element tuples 
 fst' (x, _, _) = x
 snd' (_, y, _) = y
 thrd' (_, _, z) = z
 
+-- for extracting substrings
 subRange :: (Int, Int) -> [a] -> [a]
 subRange (x, y) = take (y - x) . drop x
 
+-- for extracting strings from index tuple
 extractMatches :: String -> [(Int, Int)] -> [String]
 extractMatches str = map (flip subRange str)
 
