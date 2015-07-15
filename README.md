@@ -6,6 +6,6 @@ This library seeks to combine the Haskell function flexibility with
 regular expressions.
 
 ##Maintener
-Author: Groza Cristian
-Email: kristi9524@gmail.com
+- Author: Groza Cristian
+- Email: kristi9524@gmail.com
 
