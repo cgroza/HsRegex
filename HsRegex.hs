@@ -1,39 +1,38 @@
-module HsRegex (subRange, 
-                dot, 
-                endl, 
-                stl, 
-                spc, 
+module HsRegex (subRange,
+                char,
+                dot,
+                endl,
+                stl,
+                spc,
                 notSpc,
-                wc, 
-                notWc, 
-                digit, 
-                notDigit, 
-                alnum, 
-                ch, 
-                plus, 
-                star, 
-                pipe, 
-                range, 
-                notRange, 
-                qMark, 
+                wc,
+                notWc,
+                digit,
+                notDigit,
+                alnum,
+                plus,
+                star,
+                pipe,
+                range,
+                notRange,
+                qMark,
                 wb,
                 reGroup,
                 var,
-                mN, 
-                mLN, 
+                mN,
+                mLN,
                 mN1N2,
-                combine, 
-                (=~), 
-                replRe) where
+                combine,
+                (=~),
+                RegexS)
+       where
 
 import Data.Char
 import Data.List
+import Control.Monad.State as C
+import Control.Monad.Writer
+import Control.Monad.Loops
 import Data.String.Utils
-
--- for 3 element tuples 
-fst' (x, _, _) = x
-snd' (_, y, _) = y
-thrd' (_, _, z) = z
 
 -- for extracting substrings
 subRange :: (Int, Int) -> [a] -> [a]
@@ -43,183 +42,224 @@ subRange (x, y) = take (y - x) . drop x
 extractMatches :: String -> [(Int, Int)] -> [String]
 extractMatches str = map (flip subRange str)
 
--- for notational convienience
-type Regex = [String] -> String -> Int -> (Bool, Int, [String])
+data RegexS = RegexS {groups :: [String], text :: String, position :: Int}
 
-greedyMatch :: Regex -> [String] -> String -> Int -> (Int, Int)
-greedyMatch m  groups ss i = match ss i m 0 groups
-  where match :: String -> Int -> Regex -> Int -> [String] -> (Int, Int)
-        match str indx isMatch nrMatch gs =
-          if indx < length str && fst' (isMatch gs str indx ) then
-            match str (indx + 1) isMatch (nrMatch + 1) gs
-          else (nrMatch, indx)
+addGroup :: String -> State RegexS ()
+addGroup g = do
+  (RegexS gs t p) <- get
+  put $ RegexS (gs ++ [g]) t p
 
-matchN :: Regex -> Int -> [String]-> String -> Int -> (Bool, Int)
-matchN m n groups ss i = match ss i m n 0 groups
-  where match :: String -> Int -> Regex -> Int -> Int -> [String] -> (Bool, Int)
-        match str indx isMatch nrMatch nrTimes gs =
-          if nrTimes < nrMatch && indx < length str
-             && fst' (isMatch gs str indx) then
-            match str (indx + 1) isMatch nrMatch (nrTimes +1) gs
-          else (nrTimes == nrMatch, indx)
+getGroup :: Int -> State RegexS (Maybe String)
+getGroup varN = do
+  (RegexS gs _ _) <- get
+  return $ if varN < length gs then Just $ gs !! (varN - 1) else Nothing
 
-matchAtLeastN :: Regex -> Int -> [String] -> String -> Int -> (Bool, Int)
-matchAtLeastN m n groups ss i = match ss i m n 0 groups
-  where match :: String -> Int -> Regex -> Int -> Int -> [String] -> (Bool, Int)
-        match str indx isMatch nrMatch nrTimes gs =
-          if indx < length str && fst' (isMatch gs str indx) then
-            match str (indx + 1) isMatch nrMatch (nrTimes +1) gs
-          else (nrTimes >= nrMatch, indx)
+setPosition :: Int -> State RegexS ()
+setPosition p'  = do
+  (RegexS g t _) <- get
+  put $ RegexS g t p'
 
-matchBetweenN1N2 :: Regex -> Int -> Int -> [String] -> String -> Int -> 
-                    (Bool, Int)
-matchBetweenN1N2 m n1 n2 groups ss i = match ss i m n1 n2 0 groups
-  where match str indx isMatch min max counter gs =
-          if counter < max && indx < length str && fst' (isMatch gs str indx)
-          then match str (indx + 1) isMatch min max (counter + 1) gs
-          else (counter >= min && counter <= max, indx)
+advancePosition :: Int -> State RegexS ()
+advancePosition i = getPosition >>= (setPosition . (i +))
+
+currentChar :: RegexS -> Char
+currentChar st = text st !! position st
+
+getPosition :: State RegexS Int
+getPosition = liftM position get
+
+getTextLength :: State RegexS Int
+getTextLength = liftM (length . text) get
+
+match :: State RegexS Bool -> State RegexS Bool
+match m = do
+  oldPos <- getPosition
+  matched <- m
+  st <- get
+  if position st < length (text st) && matched
+    then return True
+    else setPosition oldPos >> return False
+
+-- match using regexp m as many times as possible
+greedyMatch :: State RegexS Bool -> State RegexS Int
+greedyMatch m  = liftM length $ whileM (match m) (return ())
+
+-- match using regexp m N times
+-- if N is not satisfied, fst is false
+matchN :: State RegexS Bool -> Int -> State RegexS Bool
+matchN m i =  andM $ replicate i (match m)
+
+-- match using regexp m at least N times
+-- if N is not satisfied, fst is false
+matchAtLeastN :: State RegexS Bool -> Int -> State RegexS Bool
+matchAtLeastN m i = liftM (i <=) (greedyMatch m)
+
+-- match using regexp m between N1 and N2
+-- if not between N1 N2, fst is false
+matchBetweenN1N2 :: State RegexS Bool -> Int -> Int -> State RegexS Bool
+matchBetweenN1N2 m n1 n2 = fmap (>= n1) $ liftM (length . takeWhile id) $ sequence
+                           (replicate n2 (match m))
+
+-- characters
+char :: Char -> State RegexS Bool
+char c = do
+    st <- get
+    advancePosition 1
+    return $ c == text st !! position st
 
 -- .
-dot :: Regex
-dot gs ss i = ('\n' /= ss !! i, i + 1, gs)
+dot :: State RegexS Bool
+dot = do
+  st <- get
+  advancePosition 1
+  return $ '\n' /= text st !! position st
 
 -- $
-endl :: Regex
-endl gs ss i = ((i + 1) == length ss || ss !! i == '\n', i + 1, gs)
+endl :: State RegexS Bool
+endl = do
+  st <- get
+  advancePosition 1
+  return $ (position st >= length  (text st)) || (text st !! position st == '\n')
 
 -- ^
-stl :: Regex
-stl gs ss i = if i == 0 then (True, i, gs)
-              else (ss !! (i - 1) == '\n', i + 1, gs)
+stl :: State RegexS Bool
+stl = do
+  st <- get
+  if position st == 0 then return True
+    else return $ text st !! (position st - 1) == '\n'
 
 -- \s
-spc :: Regex
-spc gs ss i = (isSpace (ss !! i), i + 1, gs)
+spc :: State RegexS Bool
+spc = do
+  st <- get
+  advancePosition 1
+  return $ isSpace (text st !! position st)
 
 -- \S
-notSpc :: Regex
-notSpc gs ss i = let m = spc gs ss i in (not $ fst' $ m, snd' m, gs)
+notSpc :: State RegexS Bool
+notSpc = liftM not spc
 
 -- \w
-wc :: Regex
-wc gs ss i = (isLetter (ss !! i), i + 1, gs)
+wc :: State RegexS Bool
+wc = do
+  st <- get
+  advancePosition 1
+  return $ isLetter (text st !! position st)
 
 -- \W
-notWc :: Regex
-notWc gs ss i = let m = wc gs ss i in (not $ fst' m, snd' m, gs)
+notWc :: State RegexS Bool
+notWc = liftM not wc
 
 -- \d
-digit :: Regex
-digit gs ss i = (ss !! i `elem` ['0' .. '9'], i + 1, gs)
+digit :: State RegexS Bool
+digit = do
+  st <- get
+  advancePosition 1
+  return $ text st !! position st `elem` ['0' .. '9']
 
 -- \D
-notDigit :: Regex
-notDigit gs ss i = let m = digit gs ss i in (not $ fst' m, snd' m, gs)
+notDigit :: State RegexS Bool
+notDigit = liftM not digit
 
 -- \w
-alnum :: Regex
-alnum gs ss i = (isAlphaNum (ss !! i), i + 1, gs)
-
--- [a-Z-0-9]
-ch :: Char -> Regex
-ch ch gs ss i = (ch == ss !! i, i + 1, gs)
+alnum :: State RegexS Bool
+alnum = do
+  st <- get
+  advancePosition 1
+  return $ isAlphaNum (text st !! position st)
 
 -- +
-plus  :: Regex -> Regex
-plus m gs ss i = let (nrMatch, indx) = greedyMatch m gs ss i
-                 in (nrMatch > 0, indx, gs)
-
+plus  :: State RegexS Bool -> State RegexS Bool
+plus m = liftM (> 0) (greedyMatch m)
 -- *
-star :: Regex -> Regex
-star m gs ss i = let (nrMatch, indx) = greedyMatch m gs ss i
-                 in (nrMatch >= 0, indx, gs)
+star :: State RegexS Bool -> State RegexS Bool
+star m = greedyMatch m >> return True
 
 -- |
-pipe :: Regex -> Regex -> Regex
-pipe m1 m2 gs ss i = (fst' (m1 gs ss i) || fst' (m2 gs ss i), i + 1, gs)
+pipe :: State RegexS Bool -> State RegexS Bool -> State RegexS Bool
+pipe m1 m2 = liftM2 (||) m1 m2
 
 -- []
-range :: String -> Regex
-range cs gs ss i = (any (fst' . isMatch ss i gs) cs, i + 1, gs)
-  where isMatch ss i groups c  = ch c groups ss i 
+range :: String -> State RegexS Bool
+range cs = do
+  st <- get
+  advancePosition 1
+  return $ text st !! position st `elem` cs
 
 -- [^]
-notRange :: String -> Regex
-notRange cs gs ss i = let (bool, indx, groups) = range cs gs ss i
-                      in (not bool, indx, groups)
+notRange :: String -> State RegexS Bool
+notRange cs = liftM not (range cs)
 
 -- ?
-qMark :: Regex -> Regex
-qMark m gs ss i = case m gs ss i of
-  (True, indx, groups) -> (True, indx, groups)
-  (False, _, groups) -> (True, i, groups)
+qMark :: State RegexS Bool -> State RegexS Bool
+qMark m = do
+  oldPos <- getPosition
+  mR <- m
+  if not mR then setPosition oldPos >> return True
+    else return True
 
 -- \b
-wb :: Regex
-wb gs ss i = f gs ss i where
-  f :: Regex
-  f groups str indx
-    | indx >= length str - 1 = (False, indx, groups)
-    | isSpace (str !! indx) && isAlphaNum (str !! (indx + 1 )) =
-      (True, indx, groups)
-    | otherwise = f gs str (indx + 1)
+wb :: State RegexS Bool
+wb = plus spc >> alnum
 
 -- (regexp)
-reGroup :: [Regex] -> Regex
-reGroup rs gs ss i = let (bool, indx, group) = combine rs ss i
-                     in if bool then
-                          (True, indx, group ++ [subRange (i, indx) ss])
-                        else (False, i, gs)
-
+reGroup :: [State RegexS Bool] -> State RegexS Bool
+reGroup rs = do initialPos <- getPosition
+                matched <- combine rs
+                finalPos <- getPosition
+                st <- get
+                addGroup $ subRange (initialPos, finalPos) (text st)
+                return matched
 -- $n
-var :: Int -> Regex
-var varN gs ss i = let str = if not $ null gs then gs !! (varN - 1) else []
-                       strEndIndex = i + length str in
-                   if not $ null str && str == subRange (i, strEndIndex) ss 
-                   then (True, strEndIndex, gs)
-                   else (False, i, gs)
+var :: Int -> State RegexS Bool
+var varN = do
+  pos <- getPosition
+  st <- get
+  (Just str) <- getGroup varN
+  let strEndIndex = pos + length str
+  if not $ null str && str == subRange (pos, strEndIndex) (text st)
+    then setPosition strEndIndex >> return True
+    else return False
 
 -- {n}
-mN :: Regex -> Int -> [String] -> String -> Int -> (Bool, Int, [String])
-mN m n gs ss i = let (bool, pos) = matchN m n gs ss i in (bool, pos, gs)
+mN :: State RegexS Bool -> Int -> State RegexS Bool
+mN = matchN
 
 -- {,n}
-mLN :: Regex -> Int -> [String] -> String -> Int -> (Bool, Int, [String])
-mLN m n gs ss i = let (bool, pos) = matchAtLeastN m n gs ss i in (bool, pos, gs)
+mLN :: State RegexS Bool -> Int -> State RegexS Bool
+mLN = matchAtLeastN
 
 -- {n, n}
-mN1N2 :: Regex -> (Int, Int) -> [String] -> String -> Int -> (Bool,Int,[String])
-mN1N2 m (min, max) gs ss i = let (bool, pos) = matchBetweenN1N2 m min max gs ss i 
-                             in (bool, pos, gs)
-     
+mN1N2 :: State RegexS Bool -> (Int, Int) -> State RegexS Bool
+mN1N2 m (min, max) = matchBetweenN1N2 m min max
+
 -- chain functions together and providing the end index
--- of the previous as the start of the current.
-combine :: [Regex] -> String -> Int -> (Bool, Int, [String])
-combine funs = acc funs [] []
-  where acc :: [Regex] -> [Bool] -> [String] -> String -> Int -> 
-               (Bool, Int, [String])
-        acc [] rs gs ss i = (and rs, i, gs)
-        acc (f:fs) rs gs ss i = let (bool, indx, groups) = f gs ss i in
-          if indx < length ss then
-            acc fs (bool:rs) groups ss indx
-          else (False, indx, groups)
+-- of the previous as the start of the next.
+combine :: [State RegexS Bool] -> State RegexS Bool
+combine regex = liftM and $ mapM acc regex
+  where acc :: State RegexS Bool -> State RegexS Bool
+        acc m = do
+          len <- getTextLength
+          pos <- getPosition
+          if len <= pos then return False
+            else m
 
-replaceRegex :: [Regex] -> String -> String -> String
-replaceRegex rs ss subStr = foldr (flip replace subStr) ss (ss =~ rs)
+-- replace all matches of (combine rs) with subStr
+replaceRegex :: [State RegexS Bool] -> String -> String -> String
+replaceRegex  rs ss subStr = foldr (flip replace subStr) ss (ss =~ rs)
 
-matchRegex :: (String -> Int -> (Bool, Int, [String])) -> String -> 
-              [(Int, Int)] -> Int -> [(Int, Int)]
-matchRegex re ss ms i = if i < length ss then
-                          let (bool, indx, _) = re ss i in
-                          if bool then
-                            matchRegex re ss (ms ++ [(i, indx)]) (i + 1)
-                          else matchRegex re ss ms (i + 1)
-                        else ms
+-- return all matches of (combine rs)
 
--- apply the regex on tails str and record the matched ranges
-(=~) :: String ->  [Regex] -> [String]
-(=~) str rs =  extractMatches str $ matchRegex (combine rs) (str ++ ['\n']) [] 0
+matchRegex ::  [State RegexS Bool] -> String -> [(Int, Int)]
+matchRegex rs ss = C.join $ map snd $ map runWriter $ map (subMatch ss (combine rs)) [0 .. length ss]
+subMatch :: String -> State RegexS Bool -> Int -> Writer [(Int, Int)] ()
+subMatch ss re i =
+        let (matched, st) = runState re (RegexS [] ss i)
+            pos = position st in
+        if (pos < length (text st)) && matched then tell [(i, pos)]
+        else return ()
 
--- replace the matches found with a regex with the suplied string
-replRe :: [Regex] -> String -> String -> String
-replRe = replaceRegex
+-- -- apply the regex on tails str and return bigest match
+(=~) :: String ->  [State RegexS Bool] -> [String]
+(=~) str rs = extractMatches str $ matchRegex rs (str ++ ['\n'])
+
