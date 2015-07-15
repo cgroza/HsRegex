@@ -1,14 +1,14 @@
 module ReParser
        where
 import HsRegex
-  
+
 -- skip function in order to consume parts of regexp
 skip :: Bool -> [a] -> [a]
 skip True _ = []
 skip False xs = xs
 
 -- parse regexp functions skip
-parse [] rs s = rs  
+parse [] rs s = rs
 parse (c:expr) rs s = case c of
   '.' ->  parse expr (rs ++ skip s [dot]) False
   '$' ->  parse expr (rs ++ skip s [endl]) False
@@ -24,4 +24,3 @@ parseRange :: String -> Regex
 parseRange = undefined
 parseBracket :: String -> Regex
 parseBracket = undefined
-
