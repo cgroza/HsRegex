@@ -9,15 +9,15 @@ import           Control.Monad.Writer
 import           Data.Char
 import           Data.String.Utils
 
+data RegexS = RegexS {groups :: [String], text :: String, position :: Int}
+
 -- for extracting substrings
 subRange :: (Int, Int) -> [a] -> [a]
 subRange (x, y) = take (y - x) . drop x
 
 -- for extracting strings from index tuple
 extractMatches :: String -> [(Int, Int)] -> [String]
-extractMatches str = map (flip subRange str)
-
-data RegexS = RegexS {groups :: [String], text :: String, position :: Int}
+extractMatches str = map (`subRange` str)
 
 addGroup :: String -> State RegexS ()
 addGroup g = do (RegexS gs t p) <- get
@@ -71,7 +71,7 @@ matchAtLeastN m i = liftM (i <=) (greedyMatch m)
 -- if not between N1 N2, fst is false
 matchBetweenN1N2 :: State RegexS Bool -> Int -> Int -> State RegexS Bool
 matchBetweenN1N2 m n1 n2 = liftM ((>= n1) . length . takeWhile id) $
-                           sequence (replicate n2 (match m))
+                           replicateM n2 (match m)
 
 -- characters
 char :: Char -> State RegexS Bool
@@ -130,7 +130,7 @@ star m = greedyMatch m >> return True
 
 -- |
 pipe :: State RegexS Bool -> State RegexS Bool -> State RegexS Bool
-pipe m1 m2 = liftM2 (||) m1 m2
+pipe = liftM2 (||)
 
 -- []
 range :: String -> State RegexS Bool
@@ -142,11 +142,10 @@ notRange cs = liftM not (range cs)
 
 -- ?
 qMark :: State RegexS Bool -> State RegexS Bool
-qMark m = do
-  oldPos <- getPosition
-  mR <- m
-  if not mR then setPosition oldPos >> return True
-    else return True
+qMark m = do oldPos <- getPosition
+             mR <- m
+             if not mR then setPosition oldPos >> return True
+               else return True
 
 -- \b
 wb :: State RegexS Bool
@@ -184,18 +183,17 @@ mLN = matchAtLeastN
 
 -- {n, n}
 mN1N2 :: State RegexS Bool -> (Int, Int) -> State RegexS Bool
-mN1N2 m (min, max) = matchBetweenN1N2 m min max
+mN1N2 m (minM, maxM) = matchBetweenN1N2 m minM maxM
 
 -- chain functions together and providing the end index
 -- of the previous as the start of the next.
 combine :: [State RegexS Bool] -> State RegexS Bool
 combine regex = liftM and $ mapM acc regex
   where acc :: State RegexS Bool -> State RegexS Bool
-        acc m = do
-          len <- getTextLength
-          pos <- getPosition
-          if len <= pos then return False
-            else m
+        acc m = do len <- getTextLength
+                   pos <- getPosition
+                   if len < pos then return False
+                     else m
 
 -- replace all matches of (combine rs) with subStr
 replaceRegex :: [State RegexS Bool] -> String -> String -> String
@@ -204,15 +202,13 @@ replaceRegex  rs ss subStr = foldr (flip replace subStr) ss (ss =~ rs)
 -- return all matches of (combine rs)
 
 matchRegex ::  [State RegexS Bool] -> String -> [(Int, Int)]
-matchRegex rs ss = C.join $ map snd $ map runWriter $ map (subMatch ss (combine rs)) [0 .. length ss]
+matchRegex rs ss = C.join $ map (snd . runWriter . subMatch ss (combine rs)) [0 .. length ss]
   where subMatch :: String -> State RegexS Bool -> Int -> Writer [(Int, Int)] ()
         subMatch ss re i =
           let (matched, st) = runState re (RegexS [] ss i)
               pos = position st in
-          if (pos < length (text st)) && matched then tell [(i, pos)]
-          else return ()
+          when ((pos <= length (text st)) && matched) $ tell [(i, pos)]
 
 -- -- apply the regex on tails str and return bigest match
 (=~) :: String ->  [State RegexS Bool] -> [String]
-(=~) str rs = extractMatches str $ matchRegex rs (str ++ ['\n'])
-
+(=~) str rs = extractMatches str $ matchRegex rs (str ++ "\n")
