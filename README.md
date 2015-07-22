@@ -46,10 +46,11 @@ Function   | Pattern
  var      |  $N where N is group number
  mN       |  {N}
  mLN      |  {,N}
- mN1N2    |  {N_1, N_2}
+ mN1N2    |  {N, N}
 
 ## TODOs
 - Stop greedy operators from consuming text belonging the next regexp match.
+
 ##Maintener
 - Author: Groza Cristian
 - Email: kristi9524@gmail.com
