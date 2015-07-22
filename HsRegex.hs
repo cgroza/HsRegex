@@ -9,7 +9,13 @@ import           Control.Monad.Writer
 import           Data.Char
 import           Data.String.Utils
 
-data RegexS = RegexS {groups :: [String], text :: String, position :: Int}
+data RegexS = RegexS [String] String [[Int]]
+
+text :: RegexS -> String
+text (RegexS _ s _) = s
+
+position :: RegexS -> Int
+position (RegexS _ _ ps) = last $ last ps
 
 -- for extracting substrings
 subRange :: (Int, Int) -> [a] -> [a]
@@ -28,30 +34,51 @@ getGroup varN = do (RegexS gs _ _) <- get
                    return $ if varN < length gs then Just $ gs !! (varN - 1)
                             else Nothing
 
-setPosition :: Int -> State RegexS ()
-setPosition p'  = do (RegexS g t _) <- get
-                     put $ RegexS g t p'
+setPos :: Int -> State RegexS ()
+setPos p'  = do (RegexS g t ps) <- get
+                put $ RegexS g t (ps ++ [[p']])
 
-movePosition :: Int -> State RegexS ()
-movePosition i = getPosition >>= (setPosition . (i +))
+-- Adds  new collection of matches.
+movePos :: Int -> State RegexS ()
+movePos i = getPos >>= (setPos . (i +))
+
+-- Appends to current collection of matches.
+appendPositon :: Int -> State RegexS ()
+appendPositon i = do (RegexS g t ps) <- get
+                     put $ RegexS g t (init ps ++ [last ps ++ [i]])
+
+-- Removes the current collection of matches and returns it.
+popPos :: State RegexS [Int]
+popPos =  do (RegexS g t ps) <- get
+             put $ RegexS g t (init ps)
+             return $ last ps
+
+popPosCollection :: State RegexS Int
+popPosCollection = do (RegexS g t ps) <- get
+                      put $ RegexS g t (init ps ++ [init $ last ps])
+                      return $ last $ last ps
+
+getPrevPosCollection :: State RegexS [Int]
+getPrevPosCollection = do (RegexS _ _ ps) <- get
+                          return $ last $ init ps
 
 currentChar :: State RegexS Char
 currentChar = liftM (\st -> text st !! position st) get
 
-getPosition :: State RegexS Int
-getPosition = liftM position get
+-- Returns furthermost position in current collection of matches.
+getPos :: State RegexS Int
+getPos = liftM position get
 
 getTextLength :: State RegexS Int
 getTextLength = liftM (length . text) get
 
 match :: State RegexS Bool -> State RegexS Bool
 match m = do
-  oldPos <- getPosition
   matched <- m
   st <- get
   if position st < length (text st) && matched
-    then return True
-    else setPosition oldPos >> return False
+    then popPos >>= appendPositon . head >> return True
+    else popPos >> return False
 
 -- match using regexp m as many times as possible
 greedyMatch :: State RegexS Bool -> State RegexS Int
@@ -75,16 +102,16 @@ matchBetweenN1N2 m n1 n2 = liftM ((>= n1) . length . takeWhile id) $
 
 -- characters
 char :: Char -> State RegexS Bool
-char c = liftM (== c) currentChar <* movePosition 1
+char c = liftM (== c) currentChar <* movePos 1
 
 -- .
 dot :: State RegexS Bool
-dot =  liftM ('\n' /=) currentChar <* movePosition 1
+dot =  liftM ('\n' /=) currentChar <* movePos 1
 
 -- $
 endl :: State RegexS Bool
-endl =  orM [liftM2 (>=) getPosition getTextLength, liftM (== '\n') currentChar] <*
-        movePosition 1
+endl =  orM [liftM2 (>=) getPos getTextLength, liftM (== '\n') currentChar] <*
+        movePos 1
 
 -- ^
 stl :: State RegexS Bool
@@ -95,7 +122,7 @@ stl = do
 
 -- \s
 spc :: State RegexS Bool
-spc = liftM isSpace currentChar <* movePosition 1 
+spc = liftM isSpace currentChar <* movePos 1
 
 -- \S
 notSpc :: State RegexS Bool
@@ -103,7 +130,7 @@ notSpc = liftM not spc
 
 -- \w
 wc :: State RegexS Bool
-wc = liftM isLetter currentChar <* movePosition 1
+wc = liftM isLetter currentChar <* movePos 1
 
 -- \W
 notWc :: State RegexS Bool
@@ -111,7 +138,7 @@ notWc = liftM not wc
 
 -- \d
 digit :: State RegexS Bool
-digit = liftM (`elem` ['0' .. '9']) currentChar <* movePosition 1
+digit = liftM (`elem` ['0' .. '9']) currentChar <* movePos 1
 
 -- \D
 notDigit :: State RegexS Bool
@@ -119,7 +146,7 @@ notDigit = liftM not digit
 
 -- \w
 alnum :: State RegexS Bool
-alnum = liftM isAlphaNum currentChar <* movePosition 1
+alnum = liftM isAlphaNum currentChar <* movePos 1
 
 -- +
 plus  :: State RegexS Bool -> State RegexS Bool
@@ -134,7 +161,7 @@ pipe = liftM2 (||)
 
 -- []
 range :: String -> State RegexS Bool
-range cs = liftM  (`elem` cs) currentChar <* movePosition 1
+range cs = liftM  (`elem` cs) currentChar <* movePos 1
 
 -- [^]
 notRange :: String -> State RegexS Bool
@@ -142,9 +169,9 @@ notRange cs = liftM not (range cs)
 
 -- ?
 qMark :: State RegexS Bool -> State RegexS Bool
-qMark m = do oldPos <- getPosition
+qMark m = do oldPos <- getPos
              mR <- m
-             if not mR then setPosition oldPos >> return True
+             if not mR then setPos oldPos >> return True
                else return True
 
 -- \b
@@ -153,23 +180,23 @@ wb = plus spc >> alnum
 
 -- (regexp)
 reGroup :: [State RegexS Bool] -> State RegexS Bool
-reGroup rs = do initialPos <- getPosition
+reGroup rs = do initialPos <- getPos
                 matched <- combine rs
-                finalPos <- getPosition
+                finalPos <- getPos
                 st <- get
                 addGroup $ subRange (initialPos, finalPos) (text st)
                 return matched
 -- $n
 var :: Int -> State RegexS Bool
 var varN = do
-  pos <- getPosition
+  pos <- getPos
   st <- get
   group <- getGroup varN
   case group of
     (Just str) -> do let strEndIndex = pos + length str
                      if not $ null str &&
                         str == subRange (pos, strEndIndex) (text st)
-                       then setPosition strEndIndex >> return True
+                       then setPos strEndIndex >> return True
                        else return False
     Nothing -> return False
 
@@ -191,21 +218,25 @@ combine :: [State RegexS Bool] -> State RegexS Bool
 combine regex = liftM and $ mapM acc regex
   where acc :: State RegexS Bool -> State RegexS Bool
         acc m = do len <- getTextLength
-                   pos <- getPosition
-                   if len < pos then return False
-                     else m
+                   pos <- getPos
+                   if len <= pos then return False
+                     else do matched <- m
+                             if matched then return True
+                               else do coll <- getPrevPosCollection
+                                       if length coll == 1 then return False
+                                         else popPos >> popPosCollection >> acc m
 
 -- replace all matches of (combine rs) with subStr
 replaceRegex :: [State RegexS Bool] -> String -> String -> String
-replaceRegex  rs ss subStr = foldr (flip replace subStr) ss (ss =~ rs)
+replaceRegex  rs ss subStr = foldr (`replace` subStr) ss (ss =~ rs)
 
 -- return all matches of (combine rs)
 
 matchRegex ::  [State RegexS Bool] -> String -> [(Int, Int)]
 matchRegex rs ss = C.join $ map (snd . runWriter . subMatch ss (combine rs)) [0 .. length ss]
   where subMatch :: String -> State RegexS Bool -> Int -> Writer [(Int, Int)] ()
-        subMatch ss re i =
-          let (matched, st) = runState re (RegexS [] ss i)
+        subMatch str re i =
+          let (matched, st) = runState re (RegexS [] str [[i]])
               pos = position st in
           when ((pos <= length (text st)) && matched) $ tell [(i, pos)]
 
