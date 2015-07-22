@@ -17,7 +17,7 @@ subRange (x, y) = take (y - x) . drop x
 
 -- for extracting strings from index tuple
 extractMatches :: String -> [(Int, Int)] -> [String]
-extractMatches str = map (`subRange` str)
+extractMatches str = fmap (`subRange` str)
 
 addGroup :: String -> State RegexS ()
 addGroup g = do (RegexS gs t p) <- get
