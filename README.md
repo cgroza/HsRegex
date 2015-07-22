@@ -24,29 +24,29 @@ the (=~) operator.
 
 Function   | Pattern
 -----------|----------------
-- char     | - any character
-- dot      | - .
-- endl     | - $
-- stl      | - ^
-- spc      | - \s
-- notSpc   | - opposite of \s
-- wc       | - \w
-- notWc    | - opposite of \w
-- digit    | - \d
-- notDigit | - opposite of \d
-- alnum    | - [:alnum:]
-- plus     | - +
-- star     | - *
-- pipe     | - |
-- range    | - []
-- notRange | - [^]
-- qMark    | - ?
-- wb       | - \b
-- reGroup  | - (regex)
-- var      | - $N where N is group number
-- mN       | - {N}
-- mLN      | - {,N}
-- mN1N2    | - {N_1, N_2}
+- char     |  any character
+- dot      |  .
+- endl     |  $
+- stl      |  ^
+- spc      |  \s
+- notSpc   |  opposite of \s
+- wc       |  \w
+- notWc    |  opposite of \w
+- digit    |  \d
+- notDigit |  opposite of \d
+- alnum    |  [:alnum:]
+- plus     |  +
+- star     |  *
+- pipe     |  |
+- range    |  []
+- notRange |  [^]
+- qMark    |  ?
+- wb       |  \b
+- reGroup  |  (regex)
+- var      |  $N where N is group number
+- mN       |  {N}
+- mLN      |  {,N}
+- mN1N2    |  {N_1, N_2}
 
 ## TODOs
 - Stop greedy operators from consuming text belonging the next regexp match.
