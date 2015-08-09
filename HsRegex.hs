@@ -36,8 +36,8 @@ getGroup varN = do gs <- liftM groups get
                             else Nothing
 
 setPos :: Int -> Regex ()
-setPos p'  = do (RegexS g t ps) <- get
-                put $ RegexS g t (ps ++ [[p']])
+setPos p  = do (RegexS g t psCol) <- get
+               put $ RegexS g t ([p] : psCol)
 
 -- Adds  new collection of matches.
 movePos :: Int -> Regex ()
@@ -45,22 +45,22 @@ movePos i = getPos >>= (setPos . (i +))
 
 -- Appends to current collection of matches.
 addPos :: Int -> Regex ()
-addPos i = do (RegexS g t ps) <- get
-              put $ RegexS g t (init ps ++ [last ps ++ [i]])
+addPos p = do (RegexS g t (ps:psCol)) <- get
+              put $ RegexS g t ((p:ps):psCol)
 
 popPos :: Regex Int
-popPos = do st@(RegexS g t ps) <- get
-            put $ RegexS g t (init ps ++ [init $ last ps])
-            return $ position st
+popPos = do st@(RegexS g t ((p:ps):psCol)) <- get
+            put $ RegexS g t (ps:psCol)
+            return p
 
 -- Removes the current collection of matches and returns it.
 popPosCollection :: Regex [Int]
-popPosCollection =  do (RegexS g t ps) <- get
-                       put $ RegexS g t (init ps)
-                       return $ last ps
+popPosCollection =  do (RegexS g t (ps:psCol)) <- get
+                       put $ RegexS g t psCol
+                       return ps
 
 getPrevPosCollection :: Regex [Int]
-getPrevPosCollection =  liftM (last . init . positions) get
+getPrevPosCollection =  liftM (head . tail . positions) get
 
 currentChar :: Regex Char
 currentChar = liftM (\st -> T.index (text st)  (position st)) get
@@ -242,5 +242,5 @@ matchRegex rs ss = S.join $ map (snd . runWriter . subMatch ss (combine rs)) [0 
 
 -- -- apply the regex on tails str and return bigest match
 (=~) :: String ->  [Regex Bool] -> [String]
-(=~) str rs = fmap T.unpack $ extractMatches textStr $ matchRegex rs (T.append textStr $ T.pack "\n")
-              where textStr = T.pack str
+(=~) str rs = fmap T.unpack $ extractMatches textStr $ matchRegex rs
+              (T.append textStr $ T.pack "\n") where textStr = T.pack str
