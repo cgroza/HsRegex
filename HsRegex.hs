@@ -223,7 +223,7 @@ combine regex = liftM and $ mapM acc regex
                              if matched then return True
                                else do coll <- getPrevPosCollection
                                        if length coll == 1 then return False
-                                         else popPos >> popPosCollection >> acc m
+                                         else popPosCollection >> popPos >> acc m
 
 -- replace all matches of (combine rs) with subStr
 replaceRegex :: [Regex Bool] -> String -> String -> String
