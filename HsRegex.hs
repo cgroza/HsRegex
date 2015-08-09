@@ -7,29 +7,30 @@ import           Control.Monad.Loops
 import           Control.Monad.State  as S
 import           Control.Monad.Writer
 import           Data.Char
+import qualified Data.Text as T
 import           Data.String.Utils
 
 -- [Int] contains the mathches of a single Regex
 -- [[Int]] records the history of matches of the full combined regex.
-data RegexS = RegexS { groups :: [String], text :: String, positions :: [[Int]]}
+data RegexS = RegexS { groups :: [T.Text], text :: T.Text, positions :: [[Int]]}
 type Regex a = State RegexS a
 
 position :: RegexS -> Int
 position = last . last . positions
 
 -- for extracting substrings
-subRange :: (Int, Int) -> [a] -> [a]
-subRange (x, y) = take (y - x) . drop x
+subRange :: (Int, Int) -> T.Text -> T.Text
+subRange (x, y) = T.take (y - x) . T.drop x
 
 -- for extracting strings from index tuple
-extractMatches :: String -> [(Int, Int)] -> [String]
+extractMatches :: T.Text -> [(Int, Int)] -> [T.Text]
 extractMatches str = fmap (`subRange` str)
 
-addGroup :: String -> Regex ()
+addGroup :: T.Text -> Regex ()
 addGroup g = do (RegexS gs t p) <- get
                 put $ RegexS (gs ++ [g]) t p
 
-getGroup :: Int -> Regex (Maybe String)
+getGroup :: Int -> Regex (Maybe T.Text)
 getGroup varN = do gs <- liftM groups get
                    return $ if varN < length gs then Just $ gs !! (varN - 1)
                             else Nothing
@@ -62,20 +63,20 @@ getPrevPosCollection :: Regex [Int]
 getPrevPosCollection =  liftM (last . init . positions) get
 
 currentChar :: Regex Char
-currentChar = liftM (\st -> text st !! position st) get
+currentChar = liftM (\st -> T.index (text st)  (position st)) get
 
 -- Returns furthermost position in current collection of matches.
 getPos :: Regex Int
 getPos = liftM position get
 
 getTextLength :: Regex Int
-getTextLength = liftM (length . text) get
+getTextLength = liftM (T.length . text) get
 
 match :: Regex Bool -> Regex Bool
 match m = do
   matched <- m
   st <- get
-  if position st < length (text st) && matched
+  if position st < T.length (text st) && matched
     then popPosCollection >>= addPos . head >> return True
     else popPosCollection >> return False
 
@@ -117,7 +118,7 @@ stl :: Regex Bool
 stl = do
   st <- get
   if position st == 0 then return True
-    else return $ text st !! (position st - 1) == '\n'
+    else return $ T.index (text st) (position st - 1) == '\n'
 
 -- \s
 spc :: Regex Bool
@@ -192,8 +193,8 @@ var varN = do
   st <- get
   group <- getGroup varN
   case group of
-    (Just str) -> do let strEndIndex = pos + length str
-                     if not $ null str &&
+    (Just str) -> do let strEndIndex = pos + T.length str
+                     if not $ T.null str &&
                         str == subRange (pos, strEndIndex) (text st)
                        then setPos strEndIndex >> return True
                        else return False
@@ -231,14 +232,15 @@ replaceRegex  rs ss subStr = foldr (`replace` subStr) ss (ss =~ rs)
 
 -- return all matches of (combine rs)
 
-matchRegex ::  [Regex Bool] -> String -> [(Int, Int)]
-matchRegex rs ss = S.join $ map (snd . runWriter . subMatch ss (combine rs)) [0 .. length ss]
-  where subMatch :: String -> Regex Bool -> Int -> Writer [(Int, Int)] ()
+matchRegex ::  [Regex Bool] -> T.Text -> [(Int, Int)]
+matchRegex rs ss = S.join $ map (snd . runWriter . subMatch ss (combine rs)) [0 .. T.length ss]
+  where subMatch :: T.Text -> Regex Bool -> Int -> Writer [(Int, Int)] ()
         subMatch str re i =
           let (matched, st) = runState re (RegexS [] str [[i]])
               pos = position st in
-          when ((pos <= length (text st)) && matched) $ tell [(i, pos)]
+          when ((pos <= T.length (text st)) && matched) $ tell [(i, pos)]
 
 -- -- apply the regex on tails str and return bigest match
 (=~) :: String ->  [Regex Bool] -> [String]
-(=~) str rs = extractMatches str $ matchRegex rs (str ++ "\n")
+(=~) str rs = fmap T.unpack $ extractMatches textStr $ matchRegex rs (T.append textStr $ T.pack "\n")
+              where textStr = T.pack str
