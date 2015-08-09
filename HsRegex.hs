@@ -16,7 +16,7 @@ data RegexS = RegexS { groups :: [T.Text], text :: T.Text, positions :: [[Int]]}
 type Regex a = State RegexS a
 
 position :: RegexS -> Int
-position = last . last . positions
+position = head . head . positions
 
 -- for extracting substrings
 subRange :: (Int, Int) -> T.Text -> T.Text
