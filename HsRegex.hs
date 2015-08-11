@@ -13,7 +13,7 @@ import           Data.String.Utils
 -- [Int] contains the mathches of a single Regex
 -- [[Int]] records the history of matches of the full combined regex.
 data RegexS = RegexS { groups :: [T.Text], text :: T.Text, positions :: [[Int]]}
-type Regex a = State RegexS a
+type Regex = State RegexS
 
 position :: RegexS -> Int
 position = head . head . positions
@@ -27,17 +27,15 @@ extractMatches :: T.Text -> [(Int, Int)] -> [T.Text]
 extractMatches str = fmap (`subRange` str)
 
 addGroup :: T.Text -> Regex ()
-addGroup g = do (RegexS gs t p) <- get
-                put $ RegexS (gs ++ [g]) t p
+addGroup g = modify $ \(RegexS gs t p) -> RegexS (gs ++ [g]) t p
 
 getGroup :: Int -> Regex (Maybe T.Text)
-getGroup varN = do gs <- liftM groups get
+getGroup varN = do gs <- gets groups
                    return $ if varN < length gs then Just $ gs !! (varN - 1)
                             else Nothing
 
 setPos :: Int -> Regex ()
-setPos p  = do (RegexS g t psCol) <- get
-               put $ RegexS g t ([p] : psCol)
+setPos p  = modify $ \(RegexS g t psCol) -> RegexS g t ([p] : psCol)
 
 -- Adds  new collection of matches.
 movePos :: Int -> Regex ()
@@ -45,32 +43,27 @@ movePos i = getPos >>= (setPos . (i +))
 
 -- Appends to current collection of matches.
 addPos :: Int -> Regex ()
-addPos p = do (RegexS g t (ps:psCol)) <- get
-              put $ RegexS g t ((p:ps):psCol)
+addPos p = modify $ \(RegexS g t (ps:psCol)) -> RegexS g t ((p:ps):psCol)
 
 popPos :: Regex Int
-popPos = do st@(RegexS g t ((p:ps):psCol)) <- get
-            put $ RegexS g t (ps:psCol)
-            return p
+popPos = State $ \(RegexS g t ((p:ps):psCol)) -> (p, RegexS g t (ps:psCol))
 
 -- Removes the current collection of matches and returns it.
 popPosCollection :: Regex [Int]
-popPosCollection =  do (RegexS g t (ps:psCol)) <- get
-                       put $ RegexS g t psCol
-                       return ps
+popPosCollection = State $ \(RegexS g t (ps:psCol)) -> (ps, RegexS g t psCol)
 
 getPrevPosCollection :: Regex [Int]
-getPrevPosCollection =  liftM (head . tail . positions) get
+getPrevPosCollection =  gets $ head . tail . positions
 
 currentChar :: Regex Char
-currentChar = liftM (\st -> T.index (text st)  (position st)) get
+currentChar = gets $ liftA2 T.index text position
 
 -- Returns furthermost position in current collection of matches.
 getPos :: Regex Int
-getPos = liftM position get
+getPos = gets position
 
 getTextLength :: Regex Int
-getTextLength = liftM (T.length . text) get
+getTextLength = gets $ T.length . text
 
 match :: Regex Bool -> Regex Bool
 match m = do
@@ -82,7 +75,7 @@ match m = do
 
 -- match using regexp m as many times as possible
 greedyMatch :: Regex Bool -> Regex Int
-greedyMatch m  = liftM length $ whileM (match m) (return ())
+greedyMatch m  = length <$> whileM (match m) (return ())
 
 -- match using regexp m N times
 -- if N is not satisfied, fst is false
@@ -92,12 +85,12 @@ matchN m i =  andM $ replicate i (match m)
 -- match using regexp m at least N times
 -- if N is not satisfied, fst is false
 matchAtLeastN :: Regex Bool -> Int -> Regex Bool
-matchAtLeastN m i = liftM (i <=) (greedyMatch m)
+matchAtLeastN m i = (i <=) <$> greedyMatch m
 
 -- match using regexp m between N1 and N2
 -- if not between N1 N2, fst is false
 matchBetweenN1N2 :: Regex Bool -> Int -> Int -> Regex Bool
-matchBetweenN1N2 m n1 n2 = liftM ((>= n1) . length . takeWhile id) $
+matchBetweenN1N2 m n1 n2 = (>= n1) . length . takeWhile id <$>
                            replicateM n2 (match m)
 
 -- characters
@@ -115,10 +108,7 @@ endl =  orM [liftM2 (>=) getPos getTextLength, liftM (== '\n') currentChar] <*
 
 -- ^
 stl :: Regex Bool
-stl = do
-  st <- get
-  if position st == 0 then return True
-    else return $ T.index (text st) (position st - 1) == '\n'
+stl = gets $ \st -> position st == 0 || T.index (text st) (position st - 1) == '\n'
 
 -- \s
 spc :: Regex Bool
