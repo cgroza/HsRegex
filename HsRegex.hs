@@ -6,6 +6,7 @@ module HsRegex (subRange, char, dot, endl, stl, spc, notSpc, wc, notWc, digit,
 import           Control.Monad.Loops
 import           Control.Monad.State  as S
 import           Control.Monad.Writer
+import           Control.Applicative
 import           Data.Char
 import qualified Data.Text as T
 import           Data.String.Utils
@@ -46,17 +47,17 @@ addPos :: Int -> Regex ()
 addPos p = modify $ \(RegexS g t (ps:psCol)) -> RegexS g t ((p:ps):psCol)
 
 popPos :: Regex Int
-popPos = State $ \(RegexS g t ((p:ps):psCol)) -> (p, RegexS g t (ps:psCol))
+popPos = state $ \(RegexS g t ((p:ps):psCol)) -> (p, RegexS g t (ps:psCol))
 
 -- Removes the current collection of matches and returns it.
 popPosCollection :: Regex [Int]
-popPosCollection = State $ \(RegexS g t (ps:psCol)) -> (ps, RegexS g t psCol)
+popPosCollection = state $ \(RegexS g t (ps:psCol)) -> (ps, RegexS g t psCol)
 
 getPrevPosCollection :: Regex [Int]
 getPrevPosCollection =  gets $ head . tail . positions
 
 currentChar :: Regex Char
-currentChar = gets $ liftA2 T.index text position
+currentChar = gets $ \s -> T.index  (text s) (position s)
 
 -- Returns furthermost position in current collection of matches.
 getPos :: Regex Int
