@@ -3,6 +3,7 @@ module HsRegex (subRange, char, dot, endl, stl, spc, notSpc, wc, notWc, digit,
                 reGroup, var, mN, mLN, mN1N2, combine, (=~), RegexS)
        where
 
+import           Control.Monad as C
 import           Control.Monad.Loops
 import           Control.Monad.State  as S
 import           Control.Monad.Writer
@@ -65,6 +66,9 @@ getPos = gets position
 
 getTextLength :: Regex Int
 getTextLength = gets $ T.length . text
+
+getMatches :: RegexS -> [Int]
+getMatches = head . positions
 
 match :: Regex Bool -> Regex Bool
 match m = do
@@ -202,6 +206,18 @@ mLN = matchAtLeastN
 -- {n, n}
 mN1N2 :: Regex Bool -> (Int, Int) -> Regex Bool
 mN1N2 m (minM, maxM) = matchBetweenN1N2 m minM maxM
+
+genStates :: RegexS -> [RegexS]
+genStates st@(RegexS g t (p:ps)) = fmap ((RegexS g t)  . (:ps) . (`drop` (getMatches st))) [0..]
+
+withRegexState :: [Regex Bool] -> RegexS -> Regex [RegexS]
+withRegexState [] s = return [s]
+withRegexState (r:rs) st = do put st
+                              m <- r
+                              s <- get
+                              matches <- liftM getMatches get
+                              if length matches > 1 then  map (withRegexState rs) (genStates s)
+                                else withRegexState rs s
 
 -- chain functions together and providing the end index
 -- of the previous as the start of the next.
