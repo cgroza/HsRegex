@@ -7,14 +7,14 @@ import           Control.Monad as C
 import           Control.Monad.Loops
 import           Control.Monad.State  as S
 import           Control.Monad.Writer
-import           Control.Applicative
 import           Data.Char
+import           Data.List
 import qualified Data.Text as T
 import           Data.String.Utils
 
 -- [Int] contains the mathches of a single Regex
 -- [[Int]] records the history of matches of the full combined regex.
-data RegexS = RegexS { groups :: [T.Text], text :: T.Text, positions :: [[Int]]}
+data RegexS = RegexS { failed :: Bool, groups :: [T.Text], text :: T.Text, positions :: [[Int]]}
 type Regex = State RegexS
 
 position :: RegexS -> Int
@@ -29,7 +29,7 @@ extractMatches :: T.Text -> [(Int, Int)] -> [T.Text]
 extractMatches str = fmap (`subRange` str)
 
 addGroup :: T.Text -> Regex ()
-addGroup g = modify $ \(RegexS gs t p) -> RegexS (gs ++ [g]) t p
+addGroup g = modify $ \(RegexS f gs t p) -> RegexS f (gs ++ [g]) t p
 
 getGroup :: Int -> Regex (Maybe T.Text)
 getGroup varN = do gs <- gets groups
@@ -37,7 +37,7 @@ getGroup varN = do gs <- gets groups
                             else Nothing
 
 setPos :: Int -> Regex ()
-setPos p  = modify $ \(RegexS g t psCol) -> RegexS g t ([p] : psCol)
+setPos p  = modify $ \(RegexS f g t psCol) -> RegexS f g t ([p] : psCol)
 
 -- Adds  new collection of matches.
 movePos :: Int -> Regex ()
@@ -45,14 +45,14 @@ movePos i = getPos >>= (setPos . (i +))
 
 -- Appends to current collection of matches.
 addPos :: Int -> Regex ()
-addPos p = modify $ \(RegexS g t (ps:psCol)) -> RegexS g t ((p:ps):psCol)
+addPos p = modify $ \(RegexS f g t (ps:psCol)) -> RegexS f g t ((p:ps):psCol)
 
 popPos :: Regex Int
-popPos = state $ \(RegexS g t ((p:ps):psCol)) -> (p, RegexS g t (ps:psCol))
+popPos = state $ \(RegexS f g t ((p:ps):psCol)) -> (p, RegexS f g t (ps:psCol))
 
 -- Removes the current collection of matches and returns it.
 popPosCollection :: Regex [Int]
-popPosCollection = state $ \(RegexS g t (ps:psCol)) -> (ps, RegexS g t psCol)
+popPosCollection = state $ \(RegexS f g t (ps:psCol)) -> (ps, RegexS f g t psCol)
 
 getPrevPosCollection :: Regex [Int]
 getPrevPosCollection =  gets $ head . tail . positions
@@ -70,13 +70,20 @@ getTextLength = gets $ T.length . text
 getMatches :: RegexS -> [Int]
 getMatches = head . positions
 
+failRegex :: Regex Bool
+failRegex = modify (\(RegexS _ g t p) -> RegexS True g t p) >> return False
+
+
+successRegex :: Regex Bool
+successRegex = modify (\(RegexS _ g t p) -> RegexS False g t p) >> return True
+
 match :: Regex Bool -> Regex Bool
 match m = do
   matched <- m
   st <- get
   if position st < T.length (text st) && matched
-    then popPosCollection >>= addPos . head >> return True
-    else popPosCollection >> return False
+    then popPosCollection >>= addPos . head >> successRegex
+    else popPosCollection >> failRegex
 
 -- match using regexp m as many times as possible
 greedyMatch :: Regex Bool -> Regex Int
@@ -148,7 +155,7 @@ plus  :: Regex Bool -> Regex Bool
 plus m = liftM (> 0) (greedyMatch m)
 -- *
 star :: Regex Bool -> Regex Bool
-star m = greedyMatch m >> return True
+star m = greedyMatch m >> successRegex
 
 -- |
 pipe :: Regex Bool -> Regex Bool -> Regex Bool
@@ -166,8 +173,8 @@ notRange cs = liftM not (range cs)
 qMark :: Regex Bool -> Regex Bool
 qMark m = do oldPos <- getPos
              mR <- m
-             if not mR then setPos oldPos >> return True
-               else return True
+             if not mR then setPos oldPos >> successRegex
+               else successRegex
 
 -- \b
 wb :: Regex Bool
@@ -191,9 +198,9 @@ var varN = do
     (Just str) -> do let strEndIndex = pos + T.length str
                      if not $ T.null str &&
                         str == subRange (pos, strEndIndex) (text st)
-                       then setPos strEndIndex >> return True
-                       else return False
-    Nothing -> return False
+                       then setPos strEndIndex >> successRegex
+                       else failRegex
+    Nothing -> failRegex
 
 -- {n}
 mN :: Regex Bool -> Int -> Regex Bool
@@ -208,16 +215,23 @@ mN1N2 :: Regex Bool -> (Int, Int) -> Regex Bool
 mN1N2 m (minM, maxM) = matchBetweenN1N2 m minM maxM
 
 genStates :: RegexS -> [RegexS]
-genStates st@(RegexS g t (p:ps)) = fmap ((RegexS g t)  . (:ps) . (`drop` (getMatches st))) [0..]
+genStates (RegexS f g t (p:ps)) = fmap (RegexS f g t  . (:ps) . (`drop` p)) [0..]
 
-withRegexState :: [Regex Bool] -> RegexS -> Regex [RegexS]
-withRegexState [] s = return [s]
+bestMatch :: [Regex RegexS] -> Regex RegexS
+bestMatch rs =  head . sortOn position . filter (not . failed) <$> C.sequence rs
+  -- ss <- C.sequence rs
+  -- return $ sortOn position $ filter (not . failed) ss
+  -- return $ head ss
+
+withRegexState :: [Regex Bool] -> RegexS -> Regex RegexS
+withRegexState [] s = return s
 withRegexState (r:rs) st = do put st
                               m <- r
                               s <- get
                               matches <- liftM getMatches get
-                              if length matches > 1 then  map (withRegexState rs) (genStates s)
-                                else withRegexState rs s
+                              if m then
+                                if length matches > 1 then bestMatch $ map (withRegexState rs) (genStates s) else withRegexState rs s
+                                else return s
 
 -- chain functions together and providing the end index
 -- of the previous as the start of the next.
@@ -226,11 +240,11 @@ combine regex = liftM and $ mapM acc regex
   where acc :: Regex Bool -> Regex Bool
         acc m = do len <- getTextLength
                    pos <- getPos
-                   if len <= pos then return False
+                   if len <= pos then failRegex
                      else do matched <- m
-                             if matched then return True
+                             if matched then successRegex
                                else do coll <- getPrevPosCollection
-                                       if length coll == 1 then return False
+                                       if length coll == 1 then failRegex
                                          else popPosCollection >> popPos >> acc m
 
 -- replace all matches of (combine rs) with subStr
@@ -243,7 +257,7 @@ matchRegex ::  [Regex Bool] -> T.Text -> [(Int, Int)]
 matchRegex rs ss = S.join $ map (snd . runWriter . subMatch ss (combine rs)) [0 .. T.length ss]
   where subMatch :: T.Text -> Regex Bool -> Int -> Writer [(Int, Int)] ()
         subMatch str re i =
-          let (matched, st) = runState re (RegexS [] str [[i]])
+          let (matched, st) = runState re (RegexS False [] str [[i]])
               pos = position st in
           when ((pos <= T.length (text st)) && matched) $ tell [(i, pos)]
 
