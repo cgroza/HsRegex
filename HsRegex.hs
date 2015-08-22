@@ -14,7 +14,7 @@ import           Data.String.Utils
 
 -- [Int] contains the mathches of a single Regex
 -- [[Int]] records the history of matches of the full combined regex.
-data RegexS = RegexS { failed :: Bool, groups :: [T.Text], text :: T.Text, positions :: [[Int]]}
+data RegexS = RegexS { failed :: Bool, groups :: [T.Text], text :: T.Text, positions :: [[Int]]} deriving (Show)
 type Regex = State RegexS
 
 position :: RegexS -> Int
@@ -47,15 +47,15 @@ movePos i = getPos >>= (setPos . (i +))
 addPos :: Int -> Regex ()
 addPos p = modify $ \(RegexS f g t (ps:psCol)) -> RegexS f g t ((p:ps):psCol)
 
-popPos :: Regex Int
-popPos = state $ \(RegexS f g t ((p:ps):psCol)) -> (p, RegexS f g t (ps:psCol))
+-- popPos :: Regex Int
+-- popPos = state $ \(RegexS f g t ((p:ps):psCol)) -> (p, RegexS f g t (ps:psCol))
 
 -- Removes the current collection of matches and returns it.
 popPosCollection :: Regex [Int]
 popPosCollection = state $ \(RegexS f g t (ps:psCol)) -> (ps, RegexS f g t psCol)
 
-getPrevPosCollection :: Regex [Int]
-getPrevPosCollection =  gets $ head . tail . positions
+-- getPrevPosCollection :: Regex [Int]
+-- getPrevPosCollection =  gets $ head . tail . positions
 
 currentChar :: Regex Char
 currentChar = gets $ \s -> T.index  (text s) (position s)
@@ -152,7 +152,8 @@ alnum = liftM isAlphaNum currentChar <* movePos 1
 
 -- +
 plus  :: Regex Bool -> Regex Bool
-plus m = liftM (> 0) (greedyMatch m)
+plus m = do nMatches <- greedyMatch m
+            if nMatches > 1 then successRegex else failRegex
 -- *
 star :: Regex Bool -> Regex Bool
 star m = greedyMatch m >> successRegex
@@ -215,38 +216,49 @@ mN1N2 :: Regex Bool -> (Int, Int) -> Regex Bool
 mN1N2 m (minM, maxM) = matchBetweenN1N2 m minM maxM
 
 genStates :: RegexS -> [RegexS]
-genStates (RegexS f g t (p:ps)) = fmap (RegexS f g t  . (:ps) . (`drop` p)) [0..]
+genStates (RegexS f g t (p:ps)) = fmap (RegexS f g t  . (:ps) . (`drop` p)) [0.. length p - 1]
 
-bestMatch :: [Regex RegexS] -> Regex RegexS
-bestMatch rs =  head . sortOn position . filter (not . failed) <$> C.sequence rs
-  -- ss <- C.sequence rs
-  -- return $ sortOn position $ filter (not . failed) ss
-  -- return $ head ss
+sortMatches :: [Regex RegexS] -> Regex [RegexS]
+sortMatches rs = sortOn position . filter (not . failed) <$> C.sequence rs
 
 withRegexState :: [Regex Bool] -> RegexS -> Regex RegexS
-withRegexState [] s = return s
+withRegexState [] st = return st
 withRegexState (r:rs) st = do put st
-                              m <- r
-                              s <- get
-                              matches <- liftM getMatches get
-                              if m then
-                                if length matches > 1 then bestMatch $ map (withRegexState rs) (genStates s) else withRegexState rs s
-                                else return s
+                              pos <- getPos
+                              len <- getTextLength
+                              if pos < len then
+                                do m <- r
+                                   s <- get
+                                   matches <- liftM getMatches get
+                                   if m then
+                                     do successRegex
+                                        if length matches > 1 then
+                                          do newSts <- sortMatches $ map (withRegexState rs) (genStates s)
+                                             if not $ null newSts then
+                                               let newSt = last newSts in put newSt >> return newSt
+                                               else failRegex >> get
+                                          else withRegexState rs s
+                                     else failRegex >> return s
+                                else failRegex >> return st
 
 -- chain functions together and providing the end index
 -- of the previous as the start of the next.
-combine :: [Regex Bool] -> Regex Bool
-combine regex = liftM and $ mapM acc regex
-  where acc :: Regex Bool -> Regex Bool
-        acc m = do len <- getTextLength
-                   pos <- getPos
-                   if len <= pos then failRegex
-                     else do matched <- m
-                             if matched then successRegex
-                               else do coll <- getPrevPosCollection
-                                       if length coll == 1 then failRegex
-                                         else popPosCollection >> popPos >> acc m
+-- combine :: [Regex Bool] -> Regex Bool
+-- combine regex = liftM and $ mapM acc regex
+--   where acc :: Regex Bool -> Regex Bool
+--         acc m = do len <- getTextLength
+--                    pos <- getPos
+--                    if len <= pos then failRegex
+--                      else do matched <- m
+--                              if matched then successRegex
+--                                else do coll <- getPrevPosCollection
+--                                        if length coll == 1 then failRegex
+--                                          else popPosCollection >> popPos >> acc m
 
+combine :: [Regex Bool] -> Regex Bool
+combine rs = do initialState <- get
+                finalState <- withRegexState rs initialState
+                return $ failed finalState
 -- replace all matches of (combine rs) with subStr
 replaceRegex :: [Regex Bool] -> String -> String -> String
 replaceRegex  rs ss subStr = foldr (`replace` subStr) ss (ss =~ rs)
@@ -257,9 +269,9 @@ matchRegex ::  [Regex Bool] -> T.Text -> [(Int, Int)]
 matchRegex rs ss = S.join $ map (snd . runWriter . subMatch ss (combine rs)) [0 .. T.length ss]
   where subMatch :: T.Text -> Regex Bool -> Int -> Writer [(Int, Int)] ()
         subMatch str re i =
-          let (matched, st) = runState re (RegexS False [] str [[i]])
+          let st = execState re (RegexS False [] str [[i]])
               pos = position st in
-          when ((pos <= T.length (text st)) && matched) $ tell [(i, pos)]
+          when ((pos <= T.length (text st)) && (not $ failed st)) $ tell [(i, pos)]
 
 -- -- apply the regex on tails str and return bigest match
 (=~) :: String ->  [Regex Bool] -> [String]
