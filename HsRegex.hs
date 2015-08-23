@@ -39,6 +39,12 @@ getGroup varN = do gs <- gets groups
 setPos :: Int -> Regex ()
 setPos p  = modify $ \(RegexS f g t psCol) -> RegexS f g t ([p] : psCol)
 
+saveState :: Regex Bool -> Regex Bool
+saveState m = do initialState <- get
+                 matched <- m
+                 put initialState
+                 return matched
+
 -- Adds  new collection of matches.
 movePos :: Int -> Regex ()
 movePos i = getPos >>= (setPos . (i +))
@@ -187,7 +193,7 @@ qMark m = do oldPos <- getPos
 
 -- \b
 wb :: Regex Bool
-wb = plus spc >> alnum
+wb = plus spc >> saveState alnum
 
 -- (regexp)
 reGroup :: [Regex Bool] -> Regex Bool
@@ -217,7 +223,9 @@ mN = matchN
 
 -- {,n}
 mLN :: Regex Bool -> Int -> Regex Bool
-mLN = matchAtLeastN
+mLN m n = do matched <- matchAtLeastN m n
+             if matched then successRegex
+               else failRegex
 
 -- {n, n}
 mN1N2 :: Regex Bool -> (Int, Int) -> Regex Bool
@@ -231,37 +239,23 @@ sortMatches rs = sortOn position . filter (not . failed) <$> C.sequence rs
 
 withRegexState :: [Regex Bool] -> RegexS -> Regex RegexS
 withRegexState [] st = return st
-withRegexState (r:rs) st = do put st
-                              pos <- getPos
-                              len <- getTextLength
-                              if pos < len then
-                                do m <- r
-                                   s <- get
-                                   matches <- liftM getMatches get
-                                   if m then
-                                     do successRegex
-                                        if length matches > 1 then
-                                          do newSts <- sortMatches $ map (withRegexState rs) (genStates s)
-                                             if not $ null newSts then
-                                               let newSt = last newSts in put newSt >> return newSt
-                                               else failRegex >> get
-                                          else withRegexState rs s
-                                     else failRegex >> return s
-                                else failRegex >> return st
-
--- chain functions together and providing the end index
--- of the previous as the start of the next.
--- combine :: [Regex Bool] -> Regex Bool
--- combine regex = liftM and $ mapM acc regex
---   where acc :: Regex Bool -> Regex Bool
---         acc m = do len <- getTextLength
---                    pos <- getPos
---                    if len <= pos then failRegex
---                      else do matched <- m
---                              if matched then successRegex
---                                else do coll <- getPrevPosCollection
---                                        if length coll == 1 then failRegex
---                                          else popPosCollection >> popPos >> acc m
+withRegexState (r:rs) st =
+  do put st
+     pos <- getPos
+     len <- getTextLength
+     if pos < len then
+       do m <- r
+          s <- get
+          if m then
+            do successRegex
+               if length  (getMatches s) > 1 then
+                 do newSts <- sortMatches $ map (withRegexState rs) (genStates s)
+                    if not $ null newSts then
+                      let newSt = last newSts in put newSt >> return newSt
+                      else failRegex >> get
+                 else withRegexState rs s
+            else failRegex >> return s
+       else failRegex >> return st
 
 combine :: [Regex Bool] -> Regex Bool
 combine rs = do initialState <- get
