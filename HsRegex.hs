@@ -45,6 +45,11 @@ saveState m = do initialState <- get
                  put initialState
                  return matched
 
+stateGuard :: Regex Bool -> Regex Bool
+stateGuard m = do matched <- m
+                  if matched then successRegex
+                    else failRegex
+
 -- Adds  new collection of matches.
 movePos :: Int -> Regex ()
 movePos i = getPos >>= (setPos . (i +))
@@ -89,7 +94,7 @@ match m = do
   st <- get
   if position st < T.length (text st) && matched
     then popPosCollection >>= addPos . head >> successRegex
-    else popPosCollection >> failRegex
+    else popPosCollection >> return False
 
 -- match using regexp m as many times as possible
 greedyMatch :: Regex Bool -> Regex Int
@@ -158,23 +163,19 @@ alnum = liftM isAlphaNum currentChar <* movePos 1
 
 -- +
 plus  :: Regex Bool -> Regex Bool
-plus m = do nMatches <- greedyMatch m
-            if nMatches > 1 then successRegex else failRegex
+plus m = (> 0) <$> greedyMatch m
+
 -- *
 star :: Regex Bool -> Regex Bool
-star m = greedyMatch m >> successRegex
+star m = greedyMatch m >> return True
 
 -- |
 pipe :: Regex Bool -> Regex Bool -> Regex Bool
 pipe m1 m2 = do initialState <- get
                 match1 <- m1
                 if match1 then
-                  successRegex
-                  else do put initialState
-                          match2 <- m2
-                          if match2 then
-                            successRegex
-                            else failRegex
+                  return True
+                  else put initialState >> m2
 
 -- []
 range :: String -> Regex Bool
@@ -188,8 +189,8 @@ notRange cs = liftM not (range cs)
 qMark :: Regex Bool -> Regex Bool
 qMark m = do oldPos <- getPos
              mR <- m
-             if not mR then setPos oldPos >> successRegex
-               else successRegex
+             if not mR then setPos oldPos >> return True
+               else return True
 
 -- \b
 wb :: Regex Bool
@@ -213,9 +214,9 @@ var varN = do
     (Just str) -> do let strEndIndex = pos + T.length str
                      if not $ T.null str &&
                         str == subRange (pos, strEndIndex) (text st)
-                       then setPos strEndIndex >> successRegex
-                       else failRegex
-    Nothing -> failRegex
+                       then setPos strEndIndex >> return True
+                       else return False
+    Nothing -> return False
 
 -- {n}
 mN :: Regex Bool -> Int -> Regex Bool
@@ -223,10 +224,7 @@ mN = matchN
 
 -- {,n}
 mLN :: Regex Bool -> Int -> Regex Bool
-mLN m n = do matched <- matchAtLeastN m n
-             if matched then successRegex
-               else failRegex
-
+mLN = matchAtLeastN
 -- {n, n}
 mN1N2 :: Regex Bool -> (Int, Int) -> Regex Bool
 mN1N2 m (minM, maxM) = matchBetweenN1N2 m minM maxM
@@ -244,16 +242,15 @@ withRegexState (r:rs) st =
      pos <- getPos
      len <- getTextLength
      if pos < len then
-       do m <- r
+       do m <- stateGuard r
           s <- get
           if m then
-            do successRegex
-               if length  (getMatches s) > 1 then
-                 do newSts <- sortMatches $ map (withRegexState rs) (genStates s)
-                    if not $ null newSts then
-                      let newSt = last newSts in put newSt >> return newSt
-                      else failRegex >> get
-                 else withRegexState rs s
+            if length  (getMatches s) > 1 then
+              do newSts <- sortMatches $ map (withRegexState rs) (genStates s)
+                 if not $ null newSts then
+                   let newSt = last newSts in put newSt >> return newSt
+                   else failRegex >> get
+            else withRegexState rs s
             else failRegex >> return s
        else failRegex >> return st
 
