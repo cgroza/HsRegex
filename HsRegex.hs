@@ -160,7 +160,15 @@ star m = greedyMatch m >> successRegex
 
 -- |
 pipe :: Regex Bool -> Regex Bool -> Regex Bool
-pipe = liftM2 (||)
+pipe m1 m2 = do initialState <- get
+                match1 <- m1
+                if match1 then
+                  successRegex
+                  else do put initialState
+                          match2 <- m2
+                          if match2 then
+                            successRegex
+                            else failRegex
 
 -- []
 range :: String -> Regex Bool
