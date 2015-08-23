@@ -93,7 +93,7 @@ match m = do
   matched <- m
   st <- get
   if position st < T.length (text st) && matched
-    then popPosCollection >>= addPos . head >> successRegex
+    then popPosCollection >>= addPos . head >> return True
     else popPosCollection >> return False
 
 -- match using regexp m as many times as possible
@@ -255,9 +255,10 @@ withRegexState (r:rs) st =
        else failRegex >> return st
 
 combine :: [Regex Bool] -> Regex Bool
-combine rs = do initialState <- get
-                finalState <- withRegexState rs initialState
-                return $ failed finalState
+combine rs = liftM (not . failed) $ get >>= withRegexState rs
+  -- do initialState <- get
+  --               finalState <- withRegexState rs initialState
+  --               return $ failed finalState
 -- replace all matches of (combine rs) with subStr
 replaceRegex :: [Regex Bool] -> String -> String -> String
 replaceRegex  rs ss subStr = foldr (`replace` subStr) ss (ss =~ rs)
@@ -270,7 +271,7 @@ matchRegex rs ss = S.join $ map (snd . runWriter . subMatch ss (combine rs)) [0 
         subMatch str re i =
           let st = execState re (RegexS False [] str [[i]])
               pos = position st in
-          when ((pos <= T.length (text st)) && (not $ failed st)) $ tell [(i, pos)]
+          when (pos <= T.length (text st) && not  (failed st)) $ tell [(i, pos)]
 
 -- -- apply the regex on tails str and return bigest match
 (=~) :: String ->  [Regex Bool] -> [String]
